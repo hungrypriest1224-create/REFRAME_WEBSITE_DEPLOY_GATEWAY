@@ -1,0 +1,70 @@
+name: Deploy RE:FRAME from Drive
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".deploy/production-request.json"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: reframe-cloudflare-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      DRIVE_SOURCE_FOLDER_ID: "1zE7ea3LeYMSBhcLcfjit-eFROZksR8Ku"
+      SNAPSHOT_DIR: ${{ runner.temp }}\reframe-drive-source
+    steps:
+      - name: Check out the Gateway only
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Fetch a stable Drive snapshot
+        id: snapshot
+        env:
+          GDRIVE_SERVICE_ACCOUNT_JSON: ${{ secrets.GDRIVE_SERVICE_ACCOUNT_JSON }}
+        shell: pwsh
+        run: node scripts/fetch-drive-source.mjs
+
+      - name: Build and check the Drive source
+        shell: pwsh
+        run: |
+          $sourceRoot = $env:SNAPSHOT_DIR
+          Push-Location -LiteralPath $sourceRoot
+          try {
+            npm test
+            if ($LASTEXITCODE -ne 0) { throw "Source build or KFB authentication checks failed." }
+          }
+          finally {
+            Pop-Location
+          }
+
+      - name: Deploy and verify the Worker
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          SOURCE_FINGERPRINT: ${{ steps.snapshot.outputs.source_fingerprint }}
+        shell: pwsh
+        run: ./scripts/deploy-and-verify.ps1
+
+      - name: Remove temporary source snapshot
+        if: always()
+        shell: pwsh
+        run: |
+          $runnerTemp = [IO.Path]::GetFullPath($env:RUNNER_TEMP).TrimEnd([IO.Path]::DirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
+          $snapshot = [IO.Path]::GetFullPath($env:SNAPSHOT_DIR)
+          if (-not $snapshot.StartsWith($runnerTemp, [StringComparison]::OrdinalIgnoreCase)) { throw "Snapshot path is outside the runner temporary directory." }
+          if (Test-Path -LiteralPath $snapshot) { Remove-Item -LiteralPath $snapshot -Recurse -Force }
+
