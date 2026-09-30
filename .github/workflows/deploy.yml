@@ -60,6 +60,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           SOURCE_FINGERPRINT: ${{ steps.snapshot.outputs.source_fingerprint }}
+          WORKER_ORIGIN: "https://reframe-web.hungrypriest1224.workers.dev"
         shell: pwsh
         run: ./scripts/deploy-and-verify.ps1
 
