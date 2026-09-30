@@ -21,7 +21,6 @@ jobs:
     timeout-minutes: 30
     env:
       DRIVE_SOURCE_FOLDER_ID: "1zE7ea3LeYMSBhcLcfjit-eFROZksR8Ku"
-      SNAPSHOT_DIR: ${{ runner.temp }}\reframe-drive-source
     steps:
       - name: Check out the Gateway only
         uses: actions/checkout@v4
@@ -30,6 +29,11 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
+
+      - name: Set snapshot directory
+        shell: pwsh
+        run: |
+          "SNAPSHOT_DIR=$env:RUNNER_TEMP\reframe-drive-source" >> $env:GITHUB_ENV
 
       - name: Fetch a stable Drive snapshot
         id: snapshot
@@ -67,4 +71,3 @@ jobs:
           $snapshot = [IO.Path]::GetFullPath($env:SNAPSHOT_DIR)
           if (-not $snapshot.StartsWith($runnerTemp, [StringComparison]::OrdinalIgnoreCase)) { throw "Snapshot path is outside the runner temporary directory." }
           if (Test-Path -LiteralPath $snapshot) { Remove-Item -LiteralPath $snapshot -Recurse -Force }
-
