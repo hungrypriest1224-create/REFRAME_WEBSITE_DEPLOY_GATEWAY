@@ -63,7 +63,7 @@ jobs:
           WORKER_ORIGIN: "https://reframe-web.hungrypriest1224.workers.dev"
           PUBLIC_ORIGIN: "https://reframe-web.org"
         shell: pwsh
-        run: ./scripts/deploy-and-verify-v2.ps1
+        run: ./scripts/deploy-and-verify.ps1
 
       - name: Remove temporary source snapshot
         if: always()
