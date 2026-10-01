@@ -28,30 +28,52 @@ if ($env:PUBLIC_ORIGIN) {
   }
 }
 
+function Invoke-VersionUpload {
+  param([string]$WorkerName)
+  $output = & npx --yes wrangler@4.145.0 versions upload --config wrangler.jsonc --name $WorkerName --message "RE:FRAME Drive source $env:SOURCE_FINGERPRINT" --yes 2>&1
+  $code = $LASTEXITCODE
+  return [pscustomobject]@{
+    Output = $output
+    ExitCode = $code
+    Text = (($output | ForEach-Object { $_.ToString() }) -join "`n")
+  }
+}
+
 Push-Location -LiteralPath $sourceRoot
 try {
   $config = Get-Content -LiteralPath "wrangler.jsonc" -Raw | ConvertFrom-Json
   $workerName = [string]$config.name
   if (-not $workerName) { throw "Worker name is missing from wrangler.jsonc." }
 
-  # Upload code/assets/bindings as a Worker Version first. This intentionally does
-  # not modify existing routes or custom domains, so the Gateway only needs Editor
-  # access to the existing Worker.
-  $uploadOutput = & npx --yes wrangler@4.144.0 versions upload --config wrangler.jsonc --message "RE:FRAME Drive source $env:SOURCE_FINGERPRINT" 2>&1
-  $uploadExitCode = $LASTEXITCODE
-  $uploadOutput | ForEach-Object { Write-Output $_ }
-  if ($uploadExitCode -ne 0) {
-    throw "Cloudflare Worker Version upload failed with exit code $uploadExitCode."
+  # Upload code/assets/bindings as a Worker Version without changing routes or
+  # custom domains. If a prior Dashboard rollback makes Wrangler insist on
+  # reading route/domain metadata that this intentionally-scoped token cannot
+  # read, first replace only the Worker script content through the API. That
+  # bootstrap endpoint leaves config, bindings, assets, routes, domains and
+  # secrets untouched, then Wrangler can resume normal API-managed uploads.
+  $upload = Invoke-VersionUpload -WorkerName $workerName
+  $upload.Output | ForEach-Object { Write-Output $_ }
+
+  if ($upload.ExitCode -ne 0 -and $upload.Text -match "Unable to fetch bindings, routes, or services metadata from the dashboard") {
+    Write-Warning "Wrangler detected a Dashboard-managed Worker version. Applying a code-only API bootstrap that preserves all existing configuration, then retrying the normal version upload."
+    node (Join-Path $PSScriptRoot "bootstrap-worker-content.mjs")
+    if ($LASTEXITCODE -ne 0) { throw "Code-only Worker bootstrap failed." }
+
+    $upload = Invoke-VersionUpload -WorkerName $workerName
+    $upload.Output | ForEach-Object { Write-Output $_ }
   }
 
-  $uploadText = ($uploadOutput | ForEach-Object { $_.ToString() }) -join "`n"
-  $versionMatch = [regex]::Match($uploadText, "Worker Version ID:\s*([0-9a-fA-F-]{36})")
+  if ($upload.ExitCode -ne 0) {
+    throw "Cloudflare Worker Version upload failed with exit code $($upload.ExitCode)."
+  }
+
+  $versionMatch = [regex]::Match($upload.Text, "Worker Version ID:\s*([0-9a-fA-F-]{36})")
   if (-not $versionMatch.Success) {
     throw "Wrangler did not report a Worker Version ID."
   }
   $versionId = $versionMatch.Groups[1].Value
 
-  $previewMatch = [regex]::Match($uploadText, "Version Preview URL:\s*(https://[^\s]+)")
+  $previewMatch = [regex]::Match($upload.Text, "Version Preview URL:\s*(https://[^\s]+)")
   if ($previewMatch.Success) {
     $candidateOrigin = $previewMatch.Groups[1].Value.TrimEnd("/")
     node scripts/verify-live.mjs $candidateOrigin
@@ -61,7 +83,7 @@ try {
   }
 
   $versionSpec = "${versionId}@100%"
-  $deployOutput = & npx --yes wrangler@4.144.0 versions deploy $versionSpec --name $workerName --yes 2>&1
+  $deployOutput = & npx --yes wrangler@4.145.0 versions deploy $versionSpec --name $workerName --yes 2>&1
   $deployExitCode = $LASTEXITCODE
   $deployOutput | ForEach-Object { Write-Output $_ }
   if ($deployExitCode -ne 0) {
