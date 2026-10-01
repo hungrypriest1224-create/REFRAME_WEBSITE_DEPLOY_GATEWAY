@@ -1,4 +1,4 @@
 {
-  "requested_at": "2026-10-01T14:36:30+09:00",
-  "reason": "Deploy in-site contact form with Cloudflare Worker validation, email notification binding, and rate limiting"
+  "requested_at": "2026-10-01T14:41:00+09:00",
+  "reason": "One-time end-to-end contact delivery verification through reframe-web.org"
 }
