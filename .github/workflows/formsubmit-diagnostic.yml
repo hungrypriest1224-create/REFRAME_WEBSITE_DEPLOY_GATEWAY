@@ -1,0 +1,28 @@
+name: Temporary FormSubmit diagnostic
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/formsubmit-diagnostic.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnostic:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Test FormSubmit AJAX endpoint
+        shell: bash
+        run: |
+          set -euo pipefail
+          body='{"name":"RE:FRAME diagnostic","email":"noreply@example.com","message":"RE:FRAME contact relay activation diagnostic","_captcha":"false","_url":"https://reframe-web.org/contact/"}'
+          code="$(curl -sS -o response.txt -w '%{http_code}' --max-time 20             -X POST 'https://formsubmit.co/ajax/info@reframe-web.org'             -H 'Content-Type: application/json'             -H 'Accept: application/json'             --data "$body" || true)"
+          echo "HTTP_STATUS=$code"
+          echo "RESPONSE_BEGIN"
+          head -c 1200 response.txt 2>/dev/null || true
+          echo
+          echo "RESPONSE_END"
