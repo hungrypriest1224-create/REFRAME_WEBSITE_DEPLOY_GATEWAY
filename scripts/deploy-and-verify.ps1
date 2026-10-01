@@ -28,91 +28,50 @@ if ($env:PUBLIC_ORIGIN) {
   }
 }
 
-function Write-WorkerMetadataProbe {
-  if (-not $env:CLOUDFLARE_ACCOUNT_ID -or -not $env:CLOUDFLARE_API_TOKEN) {
-    Write-Output "Read-only Worker metadata probe skipped: Cloudflare credentials are not configured."
-    return
-  }
-
-  try {
-    $workerName = [string](Get-Content -LiteralPath (Join-Path $sourceRoot "wrangler.jsonc") -Raw | ConvertFrom-Json).name
-    if (-not $workerName) { throw "Worker name is missing." }
-  } catch {
-    Write-Output "Read-only Worker metadata probe skipped: Worker name could not be read from wrangler.jsonc."
-    return
-  }
-
-  $workerName = [Uri]::EscapeDataString($workerName)
-  $environment = "production"
-  $accountPath = "/accounts/$($env:CLOUDFLARE_ACCOUNT_ID)"
-  $paths = @(
-    "${accountPath}/workers/services/${workerName}/environments/${environment}/bindings",
-    "${accountPath}/workers/services/${workerName}/environments/${environment}/routes?show_zonename=true",
-    "${accountPath}/workers/domains/records?page=0&per_page=5&service=${workerName}&environment=${environment}",
-    "${accountPath}/workers/services/${workerName}/environments/${environment}/subdomain",
-    "${accountPath}/workers/services/${workerName}/environments/${environment}",
-    "${accountPath}/workers/scripts/${workerName}/schedules"
-  )
-
-  $client = [System.Net.Http.HttpClient]::new()
-  try {
-    $client.Timeout = [TimeSpan]::FromSeconds(10)
-    $client.DefaultRequestHeaders.Authorization = [System.Net.Http.Headers.AuthenticationHeaderValue]::new("Bearer", $env:CLOUDFLARE_API_TOKEN)
-    foreach ($path in $paths) {
-      $response = $null
-      $safePath = $path.Replace($env:CLOUDFLARE_ACCOUNT_ID, "{account_id}")
-      try {
-        $response = $client.GetAsync("https://api.cloudflare.com/client/v4$path").GetAwaiter().GetResult()
-        Write-Output "Read-only Worker metadata probe: GET $safePath -> HTTP $([int]$response.StatusCode)"
-      } catch {
-        Write-Output "Read-only Worker metadata probe: GET $safePath -> transport error ($($_.Exception.GetType().Name))"
-      } finally {
-        if ($response) { $response.Dispose() }
-      }
-    }
-  } finally {
-    $client.Dispose()
-  }
-}
-
 Push-Location -LiteralPath $sourceRoot
 try {
-  $deployOutput = & npx --yes wrangler@4.129.1 deploy --config wrangler.jsonc 2>&1
+  $config = Get-Content -LiteralPath "wrangler.jsonc" -Raw | ConvertFrom-Json
+  $workerName = [string]$config.name
+  if (-not $workerName) { throw "Worker name is missing from wrangler.jsonc." }
+
+  # Upload code/assets/bindings as a Worker Version first. This intentionally does
+  # not modify existing routes or custom domains, so the Gateway only needs Editor
+  # access to the existing Worker.
+  $uploadOutput = & npx --yes wrangler@4.144.0 versions upload --config wrangler.jsonc --message "RE:FRAME Drive source $env:SOURCE_FINGERPRINT" 2>&1
+  $uploadExitCode = $LASTEXITCODE
+  $uploadOutput | ForEach-Object { Write-Output $_ }
+  if ($uploadExitCode -ne 0) {
+    throw "Cloudflare Worker Version upload failed with exit code $uploadExitCode."
+  }
+
+  $uploadText = ($uploadOutput | ForEach-Object { $_.ToString() }) -join "`n"
+  $versionMatch = [regex]::Match($uploadText, "Worker Version ID:\s*([0-9a-fA-F-]{36})")
+  if (-not $versionMatch.Success) {
+    throw "Wrangler did not report a Worker Version ID."
+  }
+  $versionId = $versionMatch.Groups[1].Value
+
+  $previewMatch = [regex]::Match($uploadText, "Version Preview URL:\s*(https://[^\s]+)")
+  if ($previewMatch.Success) {
+    $candidateOrigin = $previewMatch.Groups[1].Value.TrimEnd("/")
+    node scripts/verify-live.mjs $candidateOrigin
+    if ($LASTEXITCODE -ne 0) { throw "Candidate Worker Version verification failed for $candidateOrigin." }
+  } else {
+    Write-Warning "Wrangler did not report a Version Preview URL; continuing with the uploaded version ID."
+  }
+
+  $versionSpec = "${versionId}@100%"
+  $deployOutput = & npx --yes wrangler@4.144.0 versions deploy $versionSpec --name $workerName --yes 2>&1
   $deployExitCode = $LASTEXITCODE
   $deployOutput | ForEach-Object { Write-Output $_ }
-  $outputText = ($deployOutput | ForEach-Object { $_.ToString() }) -join "`n"
-
   if ($deployExitCode -ne 0) {
-    $uploadCompleted = $outputText -match "(?m)^Uploaded\s+reframe-web\s+\("
-    $dashboardMetadataLookupFailure = $outputText -match "Unable to fetch bindings, routes, or services metadata from the dashboard"
-    $scopedTokenSubdomainLookupFailure =
-      ($outputText -match "/workers/subdomain") -and
-      ($outputText -match "Authentication error\s+\[code:\s*10000\]")
-
-    if ($dashboardMetadataLookupFailure -and -not $uploadCompleted) {
-      Write-WorkerMetadataProbe
-    }
-
-    if (-not ($uploadCompleted -and $scopedTokenSubdomainLookupFailure -and $expectedOrigin)) {
-      throw "Cloudflare deployment failed with exit code $deployExitCode."
-    }
-
-    Write-Warning "Wrangler uploaded reframe-web, then its account-level workers.dev subdomain lookup was blocked by the Worker-scoped token. Continuing only to live verification of the fixed workers.dev origin."
+    throw "Cloudflare Worker Version deployment failed with exit code $deployExitCode."
   }
 
-  $reportedOriginMatch = [regex]::Match($outputText, "https://[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)*\.workers\.dev")
-  if ($expectedOrigin) {
-    if ($reportedOriginMatch.Success -and $reportedOriginMatch.Value.TrimEnd("/") -ne $expectedOrigin) {
-      throw "Wrangler reported an unexpected workers.dev origin: $($reportedOriginMatch.Value)"
-    }
-    $origin = $expectedOrigin
+  if (-not $expectedOrigin) {
+    throw "A fixed workers.dev verification origin is required."
   }
-  elseif ($reportedOriginMatch.Success) {
-    $origin = $reportedOriginMatch.Value
-  }
-  else {
-    throw "Wrangler did not report the workers.dev URL and no fixed verification origin is configured."
-  }
+  $origin = $expectedOrigin
 
   node scripts/verify-live.mjs $origin
   if ($LASTEXITCODE -ne 0) { throw "Live Worker verification failed for $origin." }
@@ -127,7 +86,10 @@ try {
     "",
     "- Temporary Drive snapshot: fetched and checked for changes during download.",
     "- Build and KFB auth tests: passed.",
+    "- Worker Version upload and 100% deployment: passed.",
+    "- Existing routes and custom domains: left unchanged.",
     "- Live consultation routes, draft robots policy, public assets, and unauthenticated KFB routes: passed.",
+    "- Worker Version ID: $versionId",
     "- Preview URL: $origin",
     "- Public URL: $publicOrigin",
     "- Source fingerprint: $env:SOURCE_FINGERPRINT"
