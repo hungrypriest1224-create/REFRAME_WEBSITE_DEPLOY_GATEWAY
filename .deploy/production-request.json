@@ -1,4 +1,4 @@
 {
-  "requested_at": "2026-10-01T14:55:10+09:00",
-  "reason": "Retry contact relay with same-origin browser request headers for activation verification"
+  "requested_at": "2026-10-01T14:59:40+09:00",
+  "reason": "Request FormSubmit ownership API key through official endpoint after deployment verification"
 }
