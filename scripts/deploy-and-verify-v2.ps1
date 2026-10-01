@@ -60,6 +60,9 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "Live public-domain verification failed." }
   }
 
+  node (Join-Path $PSScriptRoot "contact-live-check-once.mjs")
+  if ($LASTEXITCODE -ne 0) { throw "One-time live contact delivery check failed." }
+
   $summary = @(
     "## RE:FRAME deployment verified",
     "",
