@@ -1,4 +1,4 @@
 {
-  "requested_at": "2026-10-01T19:04:00+09:00",
-  "reason": "Publish current Drive source with corrected Gateway path"
+  "requested_at": "2026-10-01T19:08:00+09:00",
+  "reason": "Verify current Drive source after Worker Version propagation"
 }
