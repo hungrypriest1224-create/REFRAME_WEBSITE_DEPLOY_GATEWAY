@@ -18,6 +18,16 @@ if ($env:WORKER_ORIGIN) {
   }
 }
 
+$publicOrigin = ""
+if ($env:PUBLIC_ORIGIN) {
+  $publicOrigin = $env:PUBLIC_ORIGIN.TrimEnd("/")
+  $parsedPublicOrigin = $null
+  try { $parsedPublicOrigin = [Uri]$publicOrigin } catch { throw "PUBLIC_ORIGIN is not a valid URL." }
+  if ($parsedPublicOrigin.Scheme -ne "https") {
+    throw "PUBLIC_ORIGIN must be an HTTPS origin."
+  }
+}
+
 Push-Location -LiteralPath $sourceRoot
 try {
   $deployOutput = & npx --yes wrangler@4.129.1 deploy --config wrangler.jsonc 2>&1
@@ -55,13 +65,19 @@ try {
   node scripts/verify-live.mjs $origin
   if ($LASTEXITCODE -ne 0) { throw "Live Worker verification failed for $origin." }
 
+  if ($publicOrigin) {
+    node scripts/verify-live.mjs $publicOrigin
+    if ($LASTEXITCODE -ne 0) { throw "Live public-domain verification failed for $publicOrigin." }
+  }
+
   $summary = @(
     "## RE:FRAME deployment verified",
     "",
     "- Temporary Drive snapshot: fetched and checked for changes during download.",
     "- Build and KFB auth tests: passed.",
-    "- Live public pages, draft robots policy, and unauthenticated KFB routes: passed.",
+    "- Live consultation routes, draft robots policy, public assets, and unauthenticated KFB routes: passed.",
     "- Preview URL: $origin",
+    "- Public URL: $publicOrigin",
     "- Source fingerprint: $env:SOURCE_FINGERPRINT"
   ) -join "`n"
   if ($env:GITHUB_STEP_SUMMARY) { Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value $summary }
