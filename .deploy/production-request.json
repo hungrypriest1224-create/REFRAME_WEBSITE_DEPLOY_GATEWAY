@@ -1,4 +1,4 @@
 {
-  "requested_at": "2026-10-02T15:12:00+09:00",
-  "reason": "Publish single-column mobile team cards and approved member roles"
+  "requested_at": "2026-10-02T15:54:00+09:00",
+  "reason": "Prepare secure Resend auto-reply integration for contact acknowledgements; inactive until runtime secret/domain verification"
 }
