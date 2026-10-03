@@ -1,4 +1,4 @@
 {
-  "requested_at": "2026-10-03T15:40:00+09:00",
-  "reason": "Correct desktop template proportions, heading scale, alignment, and forced line breaks after visual review; preserve mobile behavior"
+  "requested_at": "2026-10-03T15:46:00+09:00",
+  "reason": "Re-run desktop alignment release with cache-bypassed live verification after successful Worker deployment"
 }
