@@ -1,4 +1,4 @@
 {
-  "requested_at": "2026-10-03T10:00:00+09:00",
-  "reason": "Publish fully redesigned five-template system after visual QA"
+  "requested_at": "2026-10-03T10:04:00+09:00",
+  "reason": "Re-run redesigned template deployment after updating live verification to the new CTA and template preview checks"
 }
