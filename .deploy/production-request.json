@@ -1,4 +1,4 @@
 {
-  "requested_at": "2026-10-03T15:46:00+09:00",
-  "reason": "Re-run desktop alignment release with cache-bypassed live verification after successful Worker deployment"
+  "requested_at": "2026-10-03T17:11:00+09:00",
+  "reason": "Fix template text/card overflow across responsive widths; resize CHURCH BASIC 10:30 card and harden five-template intermediate-width layout"
 }
